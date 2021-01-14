@@ -1,0 +1,300 @@
+Git: The awesome parts you might not know about
+
+Adrien Bustany
+14 Jan 2021
+
+* Disclaimer
+
+I am a bit of a Git freak
+
+  # Print the most used commands looking at the bash history
+  [abustany@adrien-xps13 ~]$ history | awk '{print $2}' | sort | uniq -c | sort -nr | head -5
+      131 git
+       70 sudo
+       69 ip
+       64 ls
+       64 cd
+
+(also I seem to worry a lot about my IP address)
+
+* Everyone knows Git right?
+
+It's like SVN with `git` instead:
+
+  $ git clone git@github.com/org/repo
+  $ # edit some files
+  $ git commit -a -m 'Make some changes'
+  $ git push origin master
+
+* ... until this happens
+
+- Merge commits in all directions
+
+  $ git log --oneline
+  ab5dc499 Merge 'feature-branch' into master
+  a8bb2abf Merge 'master' into 'feature-branch'
+  f1f7a100 Add feature
+
+- "Fix" commits
+
+  $ git log --oneline
+  ab5dc499 Final review comment fixes
+  ec6adacf More review comment fixes
+  a8bb2abf Fix review comments
+  f1f7a100 Add feature
+
+- Conflicts 💣
+
+  CONFLICT (content): Merge conflict in src/foo.go
+  Automatic merge failed; fix conflicts and then commit the result.
+
+* some cheap workarounds
+
+- Merge commits, "fix" commits: squash everything and rebase
+- Conflicts: just use your version of the file 👼
+
+* so you're a Git snob 🧐, but why?
+
+- Make your reviewers love you
+
+  $ git diff --shortstat origin/master..feature-branch
+   64 files changed, 5909 insertions(+), 345 deletions(-)
+
+- Enable using git blame, git log -S, git bisect
+- More (smaller) commits makes you look better in GitHub insights 😉
+
+* "but I don't work linearly!"
+
+Neither do I!
+
+- What I initially commit
+
+  $ git log --oneline
+  75c3a24 api client wip
+  1d60229 add missing file
+  4700d12 try stuff
+  36805c0 wip
+  d56bcc9 wip
+  # and lots of throwaway branches whenever I'm not sure I'm heading in the right direction
+
+- What goes out for review
+
+  af89f0a Enforce access checks on gummibärchen
+  b973cf8 Add gummibärchen API
+  009d237 Add gummibärchen database schema
+
+The git log is not what happened, the git log is the story you're telling to the world (Gandhi?)
+
+* Git is easy
+
+.image git.png
+
+https://xkcd.com/1597/
+
+* Git is easy (continued)
+
+Understanding Git in depth helps
+
+Sources:
+- https://github.blog/2020-12-17-commits-are-snapshots-not-diffs/
+- https://git-scm.com/book/en/v2/Git-Internals-Plumbing-and-Porcelain
+
+… but not today
+
+* Tiny things that might make your life easier
+
+- [[https://github.com/git/git/blob/master/contrib/completion/git-prompt.sh][git-ps]] shows Git information in your Bash/ZSH prompt
+
+  [abustany@adrien-xps13 scratch (master|REBASE 1/2)]$
+
+- Making git rebase automatically stash/pop uncommitted changes
+
+  $ git config rebase.autoStash true
+
+- Making git rebase automatically apply autosquash commands
+
+  $ git config rebase.autoSquash true
+
+* Technique 1: Commits as the final touch
+
+- Write code and commit in "exploration" mode until you get things working
+- Backup your work (ALWAYS!) in a branch
+
+  $ git branch feature-bak # backup the version with ugly wip commits
+
+- Shoot all commits, keeping only your changes
+
+  $ git reset origin/master
+
+🙋 This is a "soft" reset, it does not touch your files, it just makes git consider the changes between your local tree and origin/master .
+
+- Look at what changes are in there, and how to shape your commits
+
+  # What's changed?
+  $ git diff
+
+  # Review all changes one by one add add them into commits
+  $ git add -p # or use Sourcetree or another GUI
+  $ git commit
+
+* Technique 1 (continued)
+
+- if things go wrong, just go back to your feature-bak branch
+
+In my case, the time spent re-reading my code to shape the commits is a self code-review. I often end up renaming stuff or reworking small things.
+
+* Technique 2: git rebase -i
+
+(My favourite git feature of all times ❤️)
+
+This technique is more useful if you already have a reasonable log to work on, for example during code review.
+
+What you sent for review:
+
+  2cda2db Commit 3
+  c972a85 Commit 2
+  f3ec85f Commit 1
+
+And someone asked you for some fixes to commit 2.
+
+  $ git rebase -i f3ec85f # start an interactive rebase for all commits after commit 1
+
+editor opens (⚠️ order of commits here is reversed):
+
+  pick c972a85 Commit 2
+  pick 2cda2db Commit 3
+
+* Technique 2: git rebase -i (continued)
+
+we ask git to stop at commit 2 and let us amend it
+
+  e c972a85 Commit 2 # <-- we edited this line
+  pick 2cda2db Commit 3
+
+once we save and quit the editor, the interactive rebase starts. My prompt now looks like this:
+
+  [abustany@adrien-xps13 scratch (master|REBASE 1/2)]$
+
+At this stage I just implement the changes that were requested in review, check that tests pass etc.
+
+Once I'm done, I stage my changes, and amend the original commit:
+
+  $ git add -p # yes, I always git add -p
+  $ git commit --amend # will amend the commit where we paused
+  $ git rebase --continue # apply the remaining commits on top to finish the rebase
+
+* Technique 2: git rebase -i (continued)
+
+If we're sure that commit 3 does not touch any files touched by commit 2, we can also do a fixup commit on top of our branch, and use git rebase's autosquash feature:
+
+  $ # edit files
+  $ git add -p
+  $ git commit --fixup=c972a85 # commit 2's hash, we can also use its title but it's less safe
+  $ git rebase -i f3ec85f # commit 1's hash
+
+when the editor opens, we can see that our fixup commit was automatically put on the right line and marked as "fixup" (ie. merge into previous commit):
+
+  pick c972a85 Commit 2
+  fixup 6dc35ec fixup! Commit 2
+  pick 2cda2db Commit 3
+
+I just save and quit without editing anything, and I'm done!
+
+* When things go wrong
+
+… and you realize you messed up everything.
+
+If you backed your branch up before:
+
+  $ git reset mybranch-bak # or git reset --hard if you also want to reset the files
+
+If not, git did it for you!
+
+  $ git reflog
+  362a46d (HEAD -> master) HEAD@{0}: rebase (finish): returning to refs/heads/master
+  362a46d (HEAD -> master) HEAD@{1}: rebase (pick): Commit 3
+  2d4a181 HEAD@{2}: rebase (fixup): Commit 2
+  c972a85 HEAD@{3}: rebase (start): checkout f3ec85fef6cb83936bd026c238d0e6bda084c760
+  6dc35ec HEAD@{4}: commit: fixup! Commit 2
+  2cda2db HEAD@{5}: commit: Commit 3
+
+git reflog is the "browser history" of git and keeps track of where your HEAD (your current commit) has been.
+
+* When things go wrong (continued)
+
+  $ git reflog
+  362a46d (HEAD -> master) HEAD@{0}: rebase (finish): returning to refs/heads/master
+  362a46d (HEAD -> master) HEAD@{1}: rebase (pick): Commit 3
+  2d4a181 HEAD@{2}: rebase (fixup): Commit 2
+  c972a85 HEAD@{3}: rebase (start): checkout c972a85
+  6dc35ec HEAD@{4}: commit: fixup! Commit 2
+  2cda2db HEAD@{5}: commit: Commit 3
+
+Reading from bottom (most ancient) to top:
+
+- We committed Commit 3
+- We committed the fixup for Commit 2
+- We started the interactive rebase, which rewinded our HEAD to Commit 2
+- The fixup for Commit 2 was amended on top, which resulted in commit 2d4a181
+- We (cherry) picked Commit 3 on top of that new commit
+
+Find the commit you want to go back to and git reset to it (ℹ️ this also gets recorded in the reflog).
+
+* Profit! 💰
+
+- Want to find which commit introduced a given function?
+
+  git log -S 'myFunction(' # now hopefully not a 6000-line commit!
+
+- Want to know why a given line of code is here?
+
+  git blame src/myfile.go # again, small commits + good messages make this work
+
+- Want to figure out which commit introduced a regression?
+
+  git bisect start HEAD COMMIT_WHERE_IT_WORKED # git help bisect for more details
+
+* Limitations 😐
+
+- GitHub is really (really) bad at handling revisions of a PR with history rewrites. One day it'll annoy me enough that I set up a Gerrit instance on the side to work around this.
+- More time spent in git, not doing "real" work. Be wise/pragmatic with this!
+
+* 📖 Some more advanced Git exercises
+
+* When I want to move a change from Commit 3 to Commit 2
+
+  $ git rebase -i f3ec85f # commit 1's hash
+
+  # editor opens
+  e c972a85 Commit 2
+  pick 2cda2db Commit 3
+  # save and quit
+
+  $ git checkout 2cda2db -- src/myfile.go # bring src/myfile.go to the state of Commit 3
+  $ git reset HEAD         # checkout did stage src/myfile.go, undo that
+  $ git add -p             # in case I only want a subset of changes from src/myfile.go
+  $ git commit --amend     # add the staged changes back to Commit 2
+  $ git checkout .         # discard the remaining changes
+  $ git rebase --continue  # carry on
+
+Git will be smart enough to realize that some changes in Commit 3 are now already in Commit 2 and won't raise any conflicts.
+
+* When I want to move a change from Commit 2 to Commit 3
+
+  $ git rebase -i f3ec85f # commit 1's hash
+
+  # editor opens
+  e c972a85 Commit 2 # we want to carve some stuff out of this one
+  s 2cda2db Commit 3 # and we'll squash commit 3 into the stuff we carved out
+  # save and quit
+
+  $ git checkout HEAD^ -- src/myfile.go    # revert myfile.go to the state before Commit 2
+  $ git commit --amend                     # amend Commit 2 with that reverted file
+  $ git checkout c972a85 -- src/myfile.go  # bring back src/myfile.go to what we originally had
+                                           # c972a85 is Commit 2 before we amended it
+  $ git commit -m sandwich                 # commit the changes in a new commit that gets sandwiched
+                                           # between commits 2 and 3
+  $ git rebase --continue
+
+  # Commit 3 gets squashed into sandwich, editor opens to let us edit the commit message, we remove
+  # the "sandwich", keeping only the original Commit 3 message.
